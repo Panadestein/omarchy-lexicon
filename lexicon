@@ -3,6 +3,7 @@ set -euo pipefail
 
 plugin_id="panadestein.lexicon"
 target_language="en"
+max_api_bytes=65536
 
 summon() {
   if [[ ${OMARCHY_TRANSLATE_DRY_RUN:-0} == 1 ]]; then
@@ -14,10 +15,22 @@ summon() {
 
 pointer_payload() {
   local cursor_json monitors_json global_x global_y
-  if ! cursor_json=$(hyprctl cursorpos -j 2>/dev/null); then
+  cursor_json=$(set +o pipefail; hyprctl cursorpos -j 2>/dev/null | head -c 4096)
+  if ! jq -e 'type == "object" and (.x | type == "number") and (.y | type == "number")' \
+    >/dev/null 2>&1 <<<"$cursor_json"; then
     cursor_json='{"x":0,"y":0}'
   fi
-  if ! monitors_json=$(hyprctl monitors -j 2>/dev/null); then
+
+  monitors_json=$(set +o pipefail; hyprctl monitors -j 2>/dev/null | head -c 131072)
+  if ! monitors_json=$(jq -c '
+    if type != "array" then error("not an array") else
+      map(select(
+        (.name | type == "string") and (.name | length <= 128) and
+        (.x | type == "number") and (.y | type == "number") and
+        (.width | type == "number") and (.height | type == "number") and
+        (.scale | type == "number") and .scale > 0
+      ) | {name, x, y, width, height, scale})
+    end' <<<"$monitors_json" 2>/dev/null); then
     monitors_json='[]'
   fi
   global_x=$(jq -r '.x // 0' <<<"$cursor_json")
@@ -45,10 +58,11 @@ show_message() {
 if (( $# > 0 )); then
   selected_text="$*"
 else
-  selected_text=$(wl-paste --primary --no-newline 2>/dev/null || true)
+  selected_text=$(set +o pipefail; wl-paste --primary --no-newline 2>/dev/null | head -c 2048)
 fi
 
-selected_text=$(printf '%s' "$selected_text" | tr '\r\n\t' '   ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' | head -c 500)
+selected_text=$(printf '%s' "$selected_text" | tr '\r\n\t' '   ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')
+selected_text=${selected_text:0:500}
 
 if [[ -z $selected_text ]]; then
   show_message "No selection" "Select text first, then press the shortcut." "" "" 3200
@@ -58,21 +72,33 @@ fi
 word_count=$(awk '{print NF}' <<<"$selected_text")
 show_message "$selected_text" "Translating…" "" "" 12000
 
-translation_json=$(curl --silent --show-error --fail --max-time 8 --get \
+translation_json=$(curl --silent --show-error --fail --max-time 8 \
+  --max-filesize "$max_api_bytes" --proto '=https' --tlsv1.2 --get \
   'https://api.mymemory.translated.net/get' \
   --data-urlencode "langpair=Autodetect|$target_language" \
   --data-urlencode "q=$selected_text" 2>/dev/null || true)
 
-translation=$(jq -r 'if .responseStatus == 200 then (.responseData.translatedText // "") else "" end' <<<"${translation_json:-null}" 2>/dev/null || true)
-source_language=$(jq -r '.responseData.detectedLanguage // ""' <<<"${translation_json:-null}" 2>/dev/null || true)
+translation=$(jq -r '
+  if .responseStatus == 200 and (.responseData.translatedText | type) == "string"
+  then .responseData.translatedText[0:1200]
+  else "" end' <<<"${translation_json:-null}" 2>/dev/null || true)
+source_language=$(jq -r '
+  if (.responseData.detectedLanguage | type) == "string"
+    and (.responseData.detectedLanguage | test("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$"))
+  then .responseData.detectedLanguage[0:16] | ascii_downcase
+  else "" end' <<<"${translation_json:-null}" 2>/dev/null || true)
 
 if [[ -z $translation ]]; then
   # Auto-detect commonly rejects source=en,target=en. Only after translation
   # fails, treat a single dictionary word as already-English input.
   if [[ $word_count -eq 1 && $selected_text =~ ^[[:alpha:]-]+$ ]]; then
-    dictionary_json=$(curl --silent --show-error --fail --max-time 5 --get \
+    dictionary_json=$(curl --silent --show-error --fail --max-time 5 \
+      --max-filesize "$max_api_bytes" --proto '=https' --tlsv1.2 --get \
       "https://api.dictionaryapi.dev/api/v2/entries/en_US/$selected_text" 2>/dev/null || true)
-    definition=$(jq -r 'if type == "array" then (.[0].meanings[0].definitions[0].definition // "") else "" end' <<<"${dictionary_json:-null}" 2>/dev/null || true)
+    definition=$(jq -r '
+      if type == "array" and (.[0].meanings[0].definitions[0].definition | type) == "string"
+      then .[0].meanings[0].definitions[0].definition[0:800]
+      else "" end' <<<"${dictionary_json:-null}" 2>/dev/null || true)
     if [[ -n $definition ]]; then
       show_message "$selected_text" "$selected_text" "$definition" "en"
       exit 0
@@ -84,9 +110,13 @@ fi
 
 definition=""
 if [[ $word_count -eq 1 && $translation =~ ^[[:alpha:]-]+$ ]]; then
-  dictionary_json=$(curl --silent --show-error --fail --max-time 5 --get \
+  dictionary_json=$(curl --silent --show-error --fail --max-time 5 \
+    --max-filesize "$max_api_bytes" --proto '=https' --tlsv1.2 --get \
     "https://api.dictionaryapi.dev/api/v2/entries/en_US/$translation" 2>/dev/null || true)
-  definition=$(jq -r 'if type == "array" then (.[0].meanings[0].definitions[0].definition // "") else "" end' <<<"${dictionary_json:-null}" 2>/dev/null || true)
+  definition=$(jq -r '
+    if type == "array" and (.[0].meanings[0].definitions[0].definition | type) == "string"
+    then .[0].meanings[0].definitions[0].definition[0:800]
+    else "" end' <<<"${dictionary_json:-null}" 2>/dev/null || true)
 fi
 
 show_message "$selected_text" "$translation" "$definition" "$source_language"

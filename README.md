@@ -18,6 +18,8 @@ seconds.
 Lexicon uses the free, keyless MyMemory API for translation and language
 detection, and Free Dictionary API for English definitions. Selected text is
 sent to those services. There is no paid API, account, or LLM involved.
+Remote responses are size-capped and validated before their text is rendered
+as plain text in the popup.
 
 ## Install
 

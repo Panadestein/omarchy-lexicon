@@ -29,11 +29,13 @@ Item {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { return }
 
-    sourceText = payload.text || ""
-    translation = payload.translation || ""
-    definition = payload.definition || ""
-    sourceLanguage = payload.sourceLanguage || ""
-    targetLanguage = payload.targetLanguage || "en"
+    sourceText = String(payload.text || "").slice(0, 500)
+    translation = String(payload.translation || "").slice(0, 1200)
+    definition = String(payload.definition || "").slice(0, 800)
+    var source = String(payload.sourceLanguage || "").slice(0, 16).toLowerCase()
+    sourceLanguage = /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(source) ? source : ""
+    var target = String(payload.targetLanguage || "en").slice(0, 16).toLowerCase()
+    targetLanguage = /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(target) ? target : "en"
     monitorName = payload.monitor || ""
     cursorX = Number(payload.x || 0)
     cursorY = Number(payload.y || 0)
@@ -96,6 +98,7 @@ Item {
           Text {
             width: parent.width
             text: root.sourceText
+            textFormat: Text.PlainText
             color: Color.popups.text
             opacity: 0.62
             font.family: Style.font.family
@@ -107,6 +110,7 @@ Item {
           Text {
             width: parent.width
             text: root.translation
+            textFormat: Text.PlainText
             color: Color.popups.text
             font.family: Style.font.family
             font.pixelSize: Style.font.title
@@ -120,6 +124,7 @@ Item {
             visible: root.definition !== ""
             width: parent.width
             text: root.definition
+            textFormat: Text.PlainText
             color: Color.popups.text
             opacity: 0.78
             font.family: Style.font.family
@@ -133,6 +138,7 @@ Item {
             visible: root.sourceLanguage !== ""
             width: parent.width
             text: root.sourceLanguage.toUpperCase() + "  →  " + root.targetLanguage.toUpperCase()
+            textFormat: Text.PlainText
             color: Color.accent
             opacity: 0.8
             font.family: Style.font.family
