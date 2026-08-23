@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+plugin_id="panadestein.lexicon"
+target_language="en"
+
+summon() {
+  if [[ ${OMARCHY_TRANSLATE_DRY_RUN:-0} == 1 ]]; then
+    printf '%s\n' "$1"
+  else
+    omarchy-shell -q shell summon "$plugin_id" "$1"
+  fi
+}
+
+pointer_payload() {
+  local cursor_json monitors_json global_x global_y
+  if ! cursor_json=$(hyprctl cursorpos -j 2>/dev/null); then
+    cursor_json='{"x":0,"y":0}'
+  fi
+  if ! monitors_json=$(hyprctl monitors -j 2>/dev/null); then
+    monitors_json='[]'
+  fi
+  global_x=$(jq -r '.x // 0' <<<"$cursor_json")
+  global_y=$(jq -r '.y // 0' <<<"$cursor_json")
+
+  jq -cn \
+    --argjson x "$global_x" --argjson y "$global_y" \
+    --argjson monitors "$monitors_json" '
+      ($monitors | map(select(.x <= $x and .y <= $y and (.x + (.width / .scale)) > $x and (.y + (.height / .scale)) > $y)) | first) as $m
+      | {monitor: ($m.name // ""), x: ($x - ($m.x // 0)), y: ($y - ($m.y // 0))}'
+}
+
+show_message() {
+  local text="$1" translation="$2" definition="${3:-}" language="${4:-}" duration="${5:-5800}"
+  local pointer
+  pointer=$(pointer_payload)
+  summon "$(jq -cn \
+    --arg text "$text" --arg translation "$translation" \
+    --arg definition "$definition" --arg sourceLanguage "$language" \
+    --argjson duration "$duration" --argjson pointer "$pointer" \
+    --arg targetLanguage "$target_language" \
+    '$pointer + {text:$text, translation:$translation, definition:$definition, sourceLanguage:$sourceLanguage, targetLanguage:$targetLanguage, duration:$duration}')"
+}
+
+if (( $# > 0 )); then
+  selected_text="$*"
+else
+  selected_text=$(wl-paste --primary --no-newline 2>/dev/null || true)
+fi
+
+selected_text=$(printf '%s' "$selected_text" | tr '\r\n\t' '   ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' | head -c 500)
+
+if [[ -z $selected_text ]]; then
+  show_message "No selection" "Select text first, then press the shortcut." "" "" 3200
+  exit 0
+fi
+
+word_count=$(awk '{print NF}' <<<"$selected_text")
+show_message "$selected_text" "Translating…" "" "" 12000
+
+translation_json=$(curl --silent --show-error --fail --max-time 8 --get \
+  'https://api.mymemory.translated.net/get' \
+  --data-urlencode "langpair=Autodetect|$target_language" \
+  --data-urlencode "q=$selected_text" 2>/dev/null || true)
+
+translation=$(jq -r 'if .responseStatus == 200 then (.responseData.translatedText // "") else "" end' <<<"${translation_json:-null}" 2>/dev/null || true)
+source_language=$(jq -r '.responseData.detectedLanguage // ""' <<<"${translation_json:-null}" 2>/dev/null || true)
+
+if [[ -z $translation ]]; then
+  # Auto-detect commonly rejects source=en,target=en. Only after translation
+  # fails, treat a single dictionary word as already-English input.
+  if [[ $word_count -eq 1 && $selected_text =~ ^[[:alpha:]-]+$ ]]; then
+    dictionary_json=$(curl --silent --show-error --fail --max-time 5 --get \
+      "https://api.dictionaryapi.dev/api/v2/entries/en_US/$selected_text" 2>/dev/null || true)
+    definition=$(jq -r 'if type == "array" then (.[0].meanings[0].definitions[0].definition // "") else "" end' <<<"${dictionary_json:-null}" 2>/dev/null || true)
+    if [[ -n $definition ]]; then
+      show_message "$selected_text" "$selected_text" "$definition" "en"
+      exit 0
+    fi
+  fi
+  show_message "$selected_text" "Couldn't translate that selection" "The free translation service didn't respond. Try again." "" 4200
+  exit 1
+fi
+
+definition=""
+if [[ $word_count -eq 1 && $translation =~ ^[[:alpha:]-]+$ ]]; then
+  dictionary_json=$(curl --silent --show-error --fail --max-time 5 --get \
+    "https://api.dictionaryapi.dev/api/v2/entries/en_US/$translation" 2>/dev/null || true)
+  definition=$(jq -r 'if type == "array" then (.[0].meanings[0].definitions[0].definition // "") else "" end' <<<"${dictionary_json:-null}" 2>/dev/null || true)
+fi
+
+show_message "$selected_text" "$translation" "$definition" "$source_language"

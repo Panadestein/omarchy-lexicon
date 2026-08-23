@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "panadestein.lexicon",
+  "name": "Lexicon",
+  "version": "1.0.0",
+  "author": "Ramon L. Panades Barrueta",
+  "description": "A Kindle-style English translation and dictionary popup for selected text",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Lexicon.qml"
+  }
+}
