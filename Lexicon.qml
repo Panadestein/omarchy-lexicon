@@ -69,37 +69,35 @@ Item {
       required property var modelData
       screen: modelData
       visible: root.opened && (!root.monitorName || modelData.name === root.monitorName)
-      anchors { top: true; bottom: true; left: true; right: true }
+      readonly property int edgeGap: Style.gapsOut
+      readonly property int desiredX: root.cursorX + Style.space(14)
+      readonly property int desiredY: root.cursorY + Style.space(18)
+      readonly property int popupX: Math.max(edgeGap,
+        Math.min(desiredX, screen.width - implicitWidth - edgeGap))
+      readonly property int popupY: desiredY + implicitHeight <= screen.height - edgeGap
+        ? desiredY
+        : Math.max(edgeGap, root.cursorY - implicitHeight - Style.space(14))
+
+      anchors { top: true; bottom: false; left: true; right: false }
+      margins {
+        top: popupWindow.popupY
+        left: popupWindow.popupX
+      }
+      implicitWidth: Math.min(root.maxCardWidth,
+        Math.max(root.minCardWidth, screen.width - edgeGap * 2))
+      implicitHeight: content.implicitHeight + root.pad * 2 + card.borderTop + card.borderBottom
       color: "transparent"
       exclusionMode: ExclusionMode.Ignore
       WlrLayershell.namespace: "panadestein-lexicon"
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-      // Only the visible card accepts input; the rest of this fullscreen
-      // layer remains click-through to the application below it.
-      mask: Region { item: card }
 
       BorderSurface {
         id: card
-        readonly property int edgeGap: Style.gapsOut
-        readonly property int desiredX: root.cursorX + Style.space(14)
-        readonly property int desiredY: root.cursorY + Style.space(18)
-
-        width: Math.min(root.maxCardWidth, Math.max(root.minCardWidth, popupWindow.width - edgeGap * 2))
-        height: content.implicitHeight + root.pad * 2 + borderTop + borderBottom
-        x: Math.max(edgeGap, Math.min(desiredX, popupWindow.width - width - edgeGap))
-        y: desiredY + height <= popupWindow.height - edgeGap
-          ? desiredY
-          : Math.max(edgeGap, root.cursorY - height - Style.space(14))
+        anchors.fill: parent
         color: Util.alpha(Color.background, 0.97)
         borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
         radius: Style.cornerRadius
-
-        MouseArea {
-          anchors.fill: parent
-          acceptedButtons: Qt.RightButton
-          onClicked: root.dismiss()
-        }
 
         Column {
           id: content
@@ -157,6 +155,18 @@ Item {
             opacity: 0.8
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
+          }
+        }
+
+        // Keep the dismissal target above the card contents. Text items declared
+        // later in the stacking order would otherwise receive the pointer event.
+        MouseArea {
+          anchors.fill: parent
+          z: 100
+          acceptedButtons: Qt.RightButton
+          onClicked: function(mouse) {
+            if (mouse.button === Qt.RightButton)
+              root.dismiss()
           }
         }
       }
