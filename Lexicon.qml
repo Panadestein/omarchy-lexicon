@@ -49,6 +49,12 @@ Item {
     hideTimer.stop()
   }
 
+  function dismiss() {
+    close()
+    if (root.shell && typeof root.shell.hide === "function")
+      root.shell.hide((root.manifest && root.manifest.id) || "panadestein.lexicon")
+  }
+
   Timer {
     id: hideTimer
     interval: Math.max(1000, root.duration)
@@ -69,7 +75,9 @@ Item {
       WlrLayershell.namespace: "panadestein-lexicon"
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-      mask: Region {}
+      // Only the visible card accepts input; the rest of this fullscreen
+      // layer remains click-through to the application below it.
+      mask: Region { item: card }
 
       BorderSurface {
         id: card
@@ -86,6 +94,12 @@ Item {
         color: Util.alpha(Color.background, 0.97)
         borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
         radius: Style.cornerRadius
+
+        MouseArea {
+          anchors.fill: parent
+          acceptedButtons: Qt.RightButton
+          onClicked: root.dismiss()
+        }
 
         Column {
           id: content

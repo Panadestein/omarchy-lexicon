@@ -44,7 +44,7 @@ hyprctl configerrors
 
 Select a word or short phrase in a Wayland application and press
 `SUPER + ALT + D`. Lexicon reads the Wayland primary selection, leaving the
-regular clipboard unchanged.
+regular clipboard unchanged. Right-click the popup to dismiss it immediately.
 
 ## Remove
 

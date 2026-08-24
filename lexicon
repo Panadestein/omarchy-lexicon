@@ -15,13 +15,15 @@ summon() {
 
 pointer_payload() {
   local cursor_json monitors_json global_x global_y
-  cursor_json=$(set +o pipefail; hyprctl cursorpos -j 2>/dev/null | head -c 4096)
+  cursor_json=$(set +o pipefail; timeout --signal=TERM --kill-after=0.2s 1s \
+    hyprctl cursorpos -j 2>/dev/null | head -c 4096)
   if ! jq -e 'type == "object" and (.x | type == "number") and (.y | type == "number")' \
     >/dev/null 2>&1 <<<"$cursor_json"; then
     cursor_json='{"x":0,"y":0}'
   fi
 
-  monitors_json=$(set +o pipefail; hyprctl monitors -j 2>/dev/null | head -c 131072)
+  monitors_json=$(set +o pipefail; timeout --signal=TERM --kill-after=0.2s 1s \
+    hyprctl monitors -j 2>/dev/null | head -c 131072)
   if ! monitors_json=$(jq -c '
     if type != "array" then error("not an array") else
       map(select(
